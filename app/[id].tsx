@@ -1,3 +1,7 @@
+import { supabase } from "@/service/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { decode } from "base64-arraybuffer";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -12,90 +16,116 @@ import {
   View,
 } from "react-native";
 
-import { supabase } from "@/service/supabase";
-import { Ionicons } from "@expo/vector-icons";
-
 export default function RunDetail() {
-  //ตัวแปรเก็บข้อมูลที่ส่งมา ณ ที่นี้คือ id ผ่าน useLocalSearchParams
   const { id } = useLocalSearchParams();
-
-  //สร้าง state เก็บข้อมูลที่ดึงมาจาก Supabase และใช้กับหน้าจอเพื่อให้ผู้ใช้ได้ปรับแก้
   const [location, setLocation] = useState("");
   const [distance, setDistance] = useState("");
   const [timeOfDay, setTimeOfDay] = useState("เช้า");
   const [imageUrl, setImageUrl] = useState("");
   const [updating, setUpdating] = useState(false);
-
+  const [newImage, setNewImage] = useState<string | null>(null);
+  const [newBase64, setNewBase64] = useState<string | null>(null);
   useEffect(() => {
     fetchRun();
   }, []);
 
-  //สร้างฟังก์ชันดึงข้อมูลรายการวิ่งจาก Supabase ตาม id ที่ส่งมา
   const fetchRun = async () => {
     const { data, error } = await supabase
       .from("runs")
       .select("*")
       .eq("id", id)
       .single();
-
     if (error) throw error;
 
     setLocation(data.location);
-    setDistance(data.distance.toString());
+    setDistance(data.distance);
     setTimeOfDay(data.time_of_day);
     setImageUrl(data.image_url);
   };
+  const handlePickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+      base64: true,
+    });
 
-  //ฟังก์ชันแก้ไข
+    if (!result.canceled) {
+      setNewImage(result.assets[0].uri);
+      setNewBase64(result.assets[0].base64 || null);
+    }
+  };
+
   const handleUpdateRunClick = async () => {
-    Alert.alert(
-      "แก้ไขรายการวิ่ง",
-      "คุณแน่ใจหรือไม่ว่าต้องการแก้ไขรายการวิ่งนี้",
-      [
-        { text: "ยกเลิก", style: "cancel" },
-        {
-          text: "แก้ไขจริงจ้าาา",
-          style: "destructive",
-          onPress: async () => {
+    Alert.alert("แก้ไขรายการ", "คุณแน่ใจหรือไม่ว่าต้องการแก้ไขข้อมูลนี้", [
+      { text: "ยกเลิก", style: "cancel" },
+      {
+        text: "ตกลง",
+        onPress: async () => {
+          try {
+            setUpdating(true);
+            let finalImageUrl = imageUrl;
 
-            if (!location || !distance) {
-              Alert.alert("คำเตือน", "กรุณากรอกข้อมูลให้ครบถ้วน");
-              return;
+            // ถ้ามีการเลือกรูปใหม่
+            if (newBase64) {
+              const fileName = `img_${Date.now()}.jpg`;
+
+              // 1. อัปโหลดรูปใหม่
+              const { error: uploadError } = await supabase.storage
+                .from("run_bk")
+                .upload(fileName, decode(newBase64), {
+                  contentType: "image/jpeg",
+                });
+
+              if (uploadError) throw uploadError;
+
+              // 2. ดึง URL ใหม่
+              const { data: urlData } = supabase.storage
+                .from("run_bk")
+                .getPublicUrl(fileName);
+
+              // 3. ลบรูปเก่าออกจาก Storage เพื่อไม่ให้เปลืองพื้นที่
+              if (imageUrl) {
+                const oldFileName = imageUrl.split("/").pop();
+                if (oldFileName) {
+                  await supabase.storage.from("run_bk").remove([oldFileName]);
+                }
+              }
+
+              finalImageUrl = urlData.publicUrl;
             }
 
-            //บันทึกแก้ไขไปที่ supabase
+            // อัปเดตข้อมูลลง Database
             const { error: updateError } = await supabase
               .from("runs")
               .update({
-                location: location,
-                distance: distance,
+                location,
+                distance,
                 time_of_day: timeOfDay,
+                image_url: finalImageUrl,
               })
               .eq("id", id);
 
-            if (updateError) {
-              Alert.alert("คำเตือน", "ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง");
-              return;
-            }
+            if (updateError) throw updateError;
 
             Alert.alert("สำเร็จ", "แก้ไขข้อมูลเรียบร้อย");
             router.back();
-          },
+          } catch (error: any) {
+            Alert.alert("Error", error.message);
+          } finally {
+            setUpdating(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
-
-  //ฟังก์ชันลบ
   const handleDeleteRunClick = async () => {
-    //ก่อนลบให้ถามผู้ใช้ก่อนว่าแน่ใจนะว่าจะลบ
-    Alert.alert("ลบรายการวิ่ง", "คุณแน่ใจหรือไม่ว่าต้องการลบรายการวิ่งนี้", [
+    Alert.alert("ลบราการวิ่ง", "คุณแน่ใจหรือไม่ว่าต้องการลบรายวิ่งนี้", [
       { text: "ยกเลิก", style: "cancel" },
       {
-        text: "ลบจริงจ้าาา",
+        text: "ลบจริง",
         style: "destructive",
         onPress: async () => {
-          //ลบข้อมูลออกจาก table->Supabase
           const { error: tableError } = await supabase
             .from("runs")
             .delete()
@@ -103,7 +133,6 @@ export default function RunDetail() {
 
           if (tableError) throw tableError;
 
-          //ลบข้อมูลออกจาก storage->Supabase
           const { error: bucketError } = await supabase.storage
             .from("run_bk")
             .remove([imageUrl.split("/").pop()!]);
@@ -116,23 +145,26 @@ export default function RunDetail() {
       },
     ]);
   };
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* ส่วนแสดงรูปภาพ */}
       <View style={styles.imageContainer}>
-        {imageUrl ? (
+        {newImage || imageUrl ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{ uri: newImage || imageUrl }}
             style={styles.mainImage}
             resizeMode="cover"
           />
         ) : (
           <View style={[styles.mainImage, styles.noImage]}>
             <Ionicons name="image-outline" size={60} color="#DDD" />
-            <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
           </View>
         )}
+
+        {/* ปุ่มแก้ไขรูปภาพ (ดินสอ) */}
+        <TouchableOpacity style={styles.editImageBtn} onPress={handlePickImage}>
+          <Ionicons name="pencil" size={18} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
       {/* ฟอร์มแก้ไขข้อมูล */}
@@ -147,7 +179,7 @@ export default function RunDetail() {
         <Text style={styles.label}>ระยะทาง (กม.)</Text>
         <TextInput
           style={styles.input}
-          value={distance}
+          value={distance.toString()}
           onChangeText={setDistance}
           keyboardType="numeric"
         />
@@ -155,15 +187,15 @@ export default function RunDetail() {
         <Text style={styles.label}>ช่วงเวลา</Text>
         <View style={styles.row}>
           {/* {(['เช้า', 'เย็น'] as const).map((time) => (
-            <TouchableOpacity
+<TouchableOpacity
               key={time}
               style={[styles.chip, timeOfDay === time && styles.chipActive]}
               onPress={() => setTimeOfDay(time)}
-            >
-              <Text style={[styles.chipText, timeOfDay === time && styles.chipTextActive]}>
+>
+<Text style={[styles.chipText, timeOfDay === time && styles.chipTextActive]}>
                 {time}
-              </Text>
-            </TouchableOpacity>
+</Text>
+</TouchableOpacity>
           ))} */}
           <TouchableOpacity
             style={[styles.chip, timeOfDay === "เช้า" && styles.chipActive]}
@@ -193,7 +225,6 @@ export default function RunDetail() {
           </TouchableOpacity>
         </View>
 
-        {/* ปุ่มแก้ไข */}
         <TouchableOpacity
           style={[styles.updateButton, updating && styles.buttonDisabled]}
           disabled={updating}
@@ -206,7 +237,6 @@ export default function RunDetail() {
           )}
         </TouchableOpacity>
 
-        {/* ปุ่มลบ */}
         <TouchableOpacity
           style={styles.deleteButton}
           onPress={handleDeleteRunClick}
@@ -234,8 +264,25 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: "100%",
-    height: 200,
+    height: 250,
     backgroundColor: "#EEE",
+    position: "relative",
+  },
+  editImageBtn: {
+    position: "absolute",
+    right: 15,
+    top: 15,
+    backgroundColor: "rgba(0, 122, 255, 0.8)",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
   },
   mainImage: {
     width: "100%",

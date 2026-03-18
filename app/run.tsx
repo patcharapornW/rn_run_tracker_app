@@ -1,36 +1,53 @@
-import { supabase } from '@/service/supabase';
-import { Runtype } from '@/types/runtype';
-import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { supabase } from "@/service/supabase";
+import { Runtype } from "@/types/runtype";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useState } from "react";
+import {
+  Alert,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 const runing = require("@/assets//images/runing.png");
 
-
 export default function Run() {
-  //สร้าง state เก็บข้อมูลที่ดึงมาจาก supabase
   const [runs, setRuns] = useState<Runtype[]>([]);
-
-  //สร้างฟังก์ชัน ดึงข้อมูลรายการวิ่งจาก supabse
+  const { uid } = useLocalSearchParams();
   const fetchRuns = async () => {
-    //ดึงข้อมูลจาก supabase
-    const { data, error } = await supabase.from("runs").select("*");
-    //ตรวจสอบ error
+    const { data, error } = await supabase
+      .from("runs")
+      .select("*")
+      .eq("user_id", uid);
+
     if (error) {
-      Alert.alert("คำเตือน", "ไม่สามารถดึงข้อมูลรายการวิ่งได้ กรุณาลองใหม่อีกครั้ง ");
+      Alert.alert("คำเตือน", "ไม่สามารถดึงข้อมูลรายการวิ่งได้ กรุณาลองใหม่");
       return;
     }
-    //กำหนดข้อมูลที่ดึงให้กับ state
     setRuns(data as Runtype[]);
   };
-
-  //เรียกใช้ฟังก์ชันดึงข้อมูล
   useFocusEffect(
     useCallback(() => {
       fetchRuns();
-    }, [])
+    }, []),
   );
+
+  const handleAddRunClick = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      router.push({
+        pathname: "/add",
+        params: { uid: user.id },
+      });
+    }
+  };
 
   //สร้างฟังก์ชันแสดงหน้าตาของแต่ละรายการที่ flatlist
   const renderItem = ({ item }: { item: Runtype }) => (
@@ -40,30 +57,31 @@ export default function Run() {
       activeOpacity={0.7}
     >
       <View style={styles.cardContent}>
-        <Image
-          source={{ uri: item.image_url }}
-          style={styles.cardImage}
-        />
+        <Image source={{ uri: item.image_url }} style={styles.cardImage} />
         <View style={styles.distanceBadge}>
           <Text style={styles.locationText}>{item.location}</Text>
           <Text style={styles.dateText}>
             {(() => {
               const date = new Date(item.run_date);
-              const buddhistYear = 'พ.ศ. ' + (date.getFullYear() + 543) ;
-              return new Intl.DateTimeFormat('th-TH', {
-                month: 'long',
-                day: 'numeric',
-              }).format(date) + ' ' + buddhistYear;
+              const buddhistYear = "พ.ศ. " + (date.getFullYear() + 543);
+              return (
+                new Intl.DateTimeFormat("th-TH", {
+                  month: "long",
+                  day: "numeric",
+                }).format(date) +
+                " " +
+                buddhistYear
+              );
             })()}
           </Text>
         </View>
         <Text style={styles.distanceText}>{item.distance} km</Text>
       </View>
- 
+
       <Ionicons name="chevron-forward" size={20} color="#CCC" />
     </TouchableOpacity>
   );
-  
+
   return (
     <View style={styles.container}>
       {/* ส่วนแสดงรูป ด้านบนสุด */}
@@ -72,20 +90,17 @@ export default function Run() {
       {/* ส่วนแสดงข้อมูลรายการว่างที่ดึงมาจาก SUPABASE*/}
       <FlatList
         data={runs}
-        renderItem={(renderItem)}
+        renderItem={renderItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listPadding}
       />
 
       {/* ส่วนแสดงปุ่มเปิดไปหน้า /add */}
-      <TouchableOpacity
-        style={styles.floatingBtn}
-        onPress={() => router.push("/add")}
-      >
+      <TouchableOpacity style={styles.floatingBtn} onPress={handleAddRunClick}>
         <Ionicons name="add" size={30} color="white" />
       </TouchableOpacity>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -98,21 +113,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
-locationText: {
-    fontFamily: 'Kanit_700Bold',
+  locationText: {
+    fontFamily: "Kanit_700Bold",
     fontSize: 18,
-    color: '#333',
+    color: "#333",
     marginBottom: 4,
   },
-dateText: {
-    fontFamily: 'Kanit_400Regular',
+  dateText: {
+    fontFamily: "Kanit_400Regular",
     fontSize: 14,
-    color: '#888',
+    color: "#888",
   },
-distanceText: {
-    fontFamily: 'Kanit_700Bold',
+  distanceText: {
+    fontFamily: "Kanit_700Bold",
     fontSize: 14,
-    color: '#007AFF',
+    color: "#007AFF",
   },
   cardImage: {
     width: 80,
@@ -121,20 +136,20 @@ distanceText: {
   },
   cardContent: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginRight: 10,
   },
   card: {
-    backgroundColor: '#FFF',
+    backgroundColor: "#FFF",
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     // Shadow สำหรับ iOS
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -146,7 +161,7 @@ distanceText: {
     flexDirection: "row",
     margin: 5,
     width: "100%",
-    padding: 10, 
+    padding: 10,
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 10,
@@ -160,8 +175,6 @@ distanceText: {
     height: 120,
     marginTop: 40,
     margin: "auto",
-  
-
   },
   floatingBtn: {
     padding: 10,
@@ -183,5 +196,5 @@ distanceText: {
     fontSize: 24,
     fontFamily: "Kanit_700Bold",
     color: "#555",
-  }
-})
+  },
+});

@@ -9,7 +9,7 @@ export default function Index() {
   //หน้า Splash Screen หน่วงเวลา 3 วิ เปิดไปหน้า Run
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace("/run");
+      router.replace("/login");
     }, 3000);
     return () => clearTimeout(timer);
   }, []);
